@@ -19,6 +19,7 @@ type alias Model =
   , answer : String
   , show : Bool
   , state : State
+  , random : Int
   , errorMessage : String
   , word : String
   ,wordsList : List String
@@ -33,17 +34,6 @@ type alias Definitions =
   { partOfSpeech : String
   , definitions : (List String)
   }
---wordsList : Cmd msg -> Sub (Result Http.Error (List String))
---wordsList cmd =
-    --File.toString "ListOfWords.txt"
-        --|> Task.perform (\_ -> []) (\fileContents ->
-           -- case fileContents of
-              --  Err _ ->
-                  --  []
-
-               -- Ok contents ->
-                  --  String.lines contents
-        --)
 
 init : () -> (Model, Cmd Msg)
 init _ =
@@ -53,30 +43,49 @@ init _ =
         , answer =  "" 
         ,show = False 
         ,state= Loading 
+        , random = 0
         , errorMessage = ""
         , word= "" 
         ,wordsList = []
         } 
         , Http.get
-        { url = "http://localhost:8000/wordList.txt"
+        { url = "http://localhost:8000/ListOfWords.txt"
         , expect = Http.expectString WordsLoaded 
         }
         
   )
 
 type Msg
-  = Randint Int
+  = NewRandomNumber Int
+  | GetRandomWord
   | GotQuote (Result Http.Error (List (List Definitions)))
   | Answer String
   | Show
   | More
   | WordsLoaded (Result Http.Error (String))
 
+url : String
+url =
+    "http://localhost:8000/ListOfWords.txt"
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
   case msg of
-    Randint randint ->
-      ( {model | word = (getWord model.word randint)}, getRandomGame model randint)
+    NewRandomNumber newnbr ->
+        let
+            wordArr = Array.fromList model.wordsList
+            wordNew = Array.get newnbr wordArr
+            a = Maybe.withDefault "........." wordNew
+        in
+            ( {model |  random = newnbr } ,   Http.get
+                { url = "https://api.dictionaryapi.dev/api/v2/entries/en/" ++ a      
+                , expect = Http.expectJson GotQuote quoteDecoder
+                }
+                
+            )
+
+
+    GetRandomWord ->
+            ( model, Random.generate NewRandomNumber (Random.int 0 999) )
     GotQuote result ->
       case result of
         Ok quote ->
@@ -91,7 +100,7 @@ update msg model =
       ({model | show = not model.show}, Cmd.none)
       
     More ->
-      (model, Random.generate Randint (Random.int 0 999) )
+      (model, Random.generate NewRandomNumber (Random.int 0 999) )
     
     WordsLoaded (Ok wordsListStr) ->
             let
@@ -101,15 +110,15 @@ update msg model =
 
     WordsLoaded (Err httpError) ->
             ( 
-                { model| errorMessage = "Problem"}, Cmd.none
+                { model| errorMessage = "Problem with loading data "}, Cmd.none
             )
     
-getRandomGame : Model -> Int -> Cmd Msg
-getRandomGame model int= 
-  Http.get
-    { url = "https://api.dictionaryapi.dev/api/v2/entries/en/" ++ (getWord model.word int)
-    , expect = Http.expectJson GotQuote quoteDecoder
-    }
+--getRandomGame : Model -> Int -> Cmd Msg
+--getRandomGame model int= 
+  --Http.get
+    --{ url = "https://api.dictionaryapi.dev/api/v2/entries/en/" ++ (getWord model.word int)
+    --, expect = Http.expectJson GotQuote quoteDecoder
+   -- }
 
 -- Decode Json
  
@@ -229,16 +238,6 @@ checkbox msg name =
     , text name
     ]
     
-getWord : String -> Int -> String
-getWord words nbr = 
-  let
-    wordlist = String.words(words)
-    wordarray = Array.fromList wordlist
-    newword = Array.get nbr wordarray
-  in
-    Maybe.withDefault "no word" newword
-    
-
 
 -- get partOfSpeechs and definisions  
 
