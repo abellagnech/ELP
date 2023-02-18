@@ -1,156 +1,291 @@
-module Main exposing (main)
-import Browser
+module Main exposing (..)
+
+import Browser exposing (..)
 import Html exposing (..)
-import Html.Attributes exposing (placeholder, value, style , type_)
-import Html.Events exposing (onClick, onInput)
+import Html.Attributes exposing (..)
+import Html.Events exposing (..)
 import Http
-import Json.Decode exposing (Decoder)
-import String
-import Url
-import Url.Builder as UrlBuilder
-import Html.Events exposing (onInput, onClick , onCheck)
-import Http
-import  Task
-import Maybe exposing (..)
+import Random
+import Array exposing (..)
+import Dict exposing (Dict)
+import Json.Decode exposing (Decoder, map4, map2, field, int, string, list, decodeString)
+import File
+import Task
+-- MODEL
 
 
-type alias Model =
-    { wordList : List String
-    , currentWord : String
-    , currentDefinition : String
-    , guess : String
-    , guessResult : Maybe Bool
-    }
+type alias Model = 
+  { text : String
+  , answer : String
+  , show : Bool
+  , state : State
+  , errorMessage : String
+  , word : String
+  ,wordsList : List String
+  }
 
+type State
+  = Failure Http.Error
+  | Loading
+  | Success (List (List Definitions))
 
-init : () -> ( Model, Cmd Msg )
+type alias Definitions = 
+  { partOfSpeech : String
+  , definitions : (List String)
+  }
+--wordsList : Cmd msg -> Sub (Result Http.Error (List String))
+--wordsList cmd =
+    --File.toString "ListOfWords.txt"
+        --|> Task.perform (\_ -> []) (\fileContents ->
+           -- case fileContents of
+              --  Err _ ->
+                  --  []
+
+               -- Ok contents ->
+                  --  String.lines contents
+        --)
+
+init : () -> (Model, Cmd Msg)
 init _ =
-    let
-        wordList =
-            -- Load the word list from a file
-            -- In this example, we assume the words are separated by newlines
-            "ListOfWords.txt"
-                |> Http.post { url = "ListOfWords.txt", body = Http.emptyBody, expect = Http.expectJson FetchWordListReceived wordListDecoder }
-                |> Task.perform identity
-                |> String.lines
-                |> List.filter (String.trim >> (/=) "")
-    in
-    ( Model wordList "" "" "" Nothing, Cmd.none )
-
-wordListDecoder : Decoder (List String)
-wordListDecoder =
-    Json.Decode.list Json.Decode.string
-
-
+  ( 
+        {
+        text = "" 
+        , answer =  "" 
+        ,show = False 
+        ,state= Loading 
+        , errorMessage = ""
+        , word= "" 
+        ,wordsList = []
+        } 
+        , Http.get
+        { url = "http://localhost:8000/wordList.txt"
+        , expect = Http.expectString WordsLoaded 
+        }
+        
+  )
 
 type Msg
-    = FetchWordListReceived (Result Http.Error String)
-    | FetchWordListFailed Http.Error
-    | FetchDefinitionReceived (Result Http.Error String)
-    | FetchDefinitionFailed Http.Error
-    | UpdateGuess String
-    | CheckGuess
-    | NextWord
-    | RestartGame
+  = Randint Int
+  | GotQuote (Result Http.Error (List (List Definitions)))
+  | Answer String
+  | Show
+  | More
+  | WordsLoaded (Result Http.Error (String))
 
-
-update : Msg -> Model -> ( Model, Cmd Msg )
+update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
-    case msg of
-        FetchWordListReceived (Ok wordList) ->
-            ( { model | wordList = wordList }, Cmd.none )
-
-        FetchWordListReceived (Err _) ->
-            ( model, Cmd.none )
-
-        FetchWordListFailed _ ->
-            ( model, Cmd.none )
-
-        FetchDefinitionReceived (Ok definition) ->
-            ( { model | currentDefinition = definition }, Cmd.none )
-
-        FetchDefinitionReceived (Err _) ->
-            ( model, Cmd.none )
-
-        FetchDefinitionFailed _ ->
-            ( model, Cmd.none )
-
-        UpdateGuess guess ->
-            ( { model | guess = guess }, Cmd.none )
-
-        CheckGuess ->
+  case msg of
+    Randint randint ->
+      ( {model | word = (getWord model.word randint)}, getRandomGame model randint)
+    GotQuote result ->
+      case result of
+        Ok quote ->
+          ({model | state = Success quote}, Cmd.none)
+        Err err ->
+          ({model | state = Failure err}, Cmd.none)
+          
+    Answer usranswer ->
+      ({model | answer=usranswer}, Cmd.none)
+      
+    Show ->
+      ({model | show = not model.show}, Cmd.none)
+      
+    More ->
+      (model, Random.generate Randint (Random.int 0 999) )
+    
+    WordsLoaded (Ok wordsListStr) ->
             let
-                isCorrect =
-                    model.guess == model.currentWord
+                wordsList = String.split " " wordsListStr
             in
-            ( { model | guessResult = Just isCorrect }, Cmd.none )
+            ( { model | wordsList = wordsList}, Cmd.none )
 
-        NextWord ->
-            let
-                word =
-                    List.map2 model.wordList
-            in
-            if List.isEmpty model.wordList then
-                ( model, Cmd.none )
-            else
-                ( { model | currentWord = word, currentDefinition = "", guess = "", guessResult = Nothing }
-                , Http.get ("https://api.dictionaryapi.dev/api/v2/entries/en/" ++ word ++ "?key=YOUR_API_KEY_HERE")
-                    |> Http.post { url = "https://api.dictionaryapi.dev/api/v2/entries/en/" ++ word ++ "?key=YOUR_API_KEY_HERE", body = Http.emptyBody, expect = Http.expectJson FetchDefinitionReceived definitionDecoder }
-
+    WordsLoaded (Err httpError) ->
+            ( 
+                { model| errorMessage = "Problem"}, Cmd.none
             )
+    
+getRandomGame : Model -> Int -> Cmd Msg
+getRandomGame model int= 
+  Http.get
+    { url = "https://api.dictionaryapi.dev/api/v2/entries/en/" ++ (getWord model.word int)
+    , expect = Http.expectJson GotQuote quoteDecoder
+    }
 
-        RestartGame ->
-            ( { model | currentWord = "", currentDefinition = "", guess = "", guessResult = Nothing }, NextWord )
-definitionDecoder : Decoder (Result Http.Error String)
+-- Decode Json
+ 
+ 
+quoteDecoder : Decoder (List (List Definitions))
+quoteDecoder =
+    (Json.Decode.list typeDefinitionsDecoder)
+    
+typeDefinitionsDecoder : Decoder (List Definitions)
+typeDefinitionsDecoder = 
+    (field "Definitions" listDefinitionDecoder)
+
+listDefinitionDecoder : Decoder (List Definitions)
+listDefinitionDecoder = 
+    Json.Decode.list definitionDecoder
+    
+definitionDecoder : Decoder Definitions
 definitionDecoder =
-    Json.Decode.at [ "0", "meanings", "0", "definitions", "0", "definition" ] Json.Decode.string
-        |> Json.Decode.map Result.Ok
-        |> Json.Decode.oneOf
-            [ Json.Decode.at [ "error" ] (Json.Decode.map Http.BadUrl <| Json.Decode.succeed "")
-            , Json.Decode.at [ "title" ] (Json.Decode.map Http.Timeout <| Json.Decode.succeed "")
-            , Json.Decode.at [ "detail" ] (Json.Decode.map Http.NetworkError <| Json.Decode.succeed "")
-            ]
+  map2 Definitions
+    (field "partOfSpeech" string)
+    (field "definitions" (Json.Decode.list definitionOnlyDecoder))
+    
+definitionOnlyDecoder : Decoder String
+definitionOnlyDecoder = 
+    (field "definition" string)
+
+
+
+-- VIEW
 
 
 view : Model -> Html Msg
 view model =
-    div []
-        [ h1 [] [ text "Guess It!" ]
-        , if List.isEmpty model.wordList then
-            p [] [ text "No words available." ]
-          else
-            div []
-                [ if model.currentDefinition == "" then
-                    button [ onClick NextWord ] [ text "Start game" ]
-                  else
-                    div []
-                        [ h2 [] [ text model.currentWord ]
-                        , p [] [ text model.currentDefinition ]
-                        , case model.guessResult of
-                            Just True ->
-                                p [ style "color" "green" ] [ text "Correct" ]
-                            Just False ->
-                                p [ style "color" "red" ] [ text "Incorrect" ]
-                            Nothing ->
-                                Html.Attributes.form [ onInput UpdateGuess, onCheck CheckGuess ]
-                                    [ input [ type_ "text", value model.guess ] []
-                                    , button [ type_ "submit" ] [ text "Guess" ]
-                                    ]
-                        ]
-                , button [ onClick RestartGame ] [ text "Restart game" ]
-                ]
-        ]
+  case model.state of
+    -- to see what reason cause the failure
+    Failure err ->
+      case err of
+        Http.BadUrl string ->
+          div []
+            [ text "I was unable to load the quote."
+            , pre[][text "\n"]
+            , text ("BadUrl: "++string)
+            , button [ onClick More, style "display" "block" ] [text "try again"]
+            ]
+        Http.Timeout ->
+          div []
+            [ text "I was unable to load the quote."
+            , pre[][text "\n"]
+            , text ("Timeout")
+            , button [ onClick More, style "display" "block" ] [text "try again"]
+            ]
+        Http.NetworkError ->
+          div []
+            [ text "I was unable to load the quote."
+            , pre[][text "\n"]
+            , text ("NetworkError")
+            , button [ onClick More, style "display" "block" ] [text "try again"]
+            ]
+        Http.BadStatus int ->
+          div []
+            [ text "I was unable to load the quote."
+            , pre[][text "\n"]
+            , text ("BadStatus: "++(String.fromInt int))
+            , button [ onClick More, style "display" "block" ] [text "try again"]
+            ]
+        Http.BadBody string ->
+          div []
+            [ text "I was unable to load the quote."
+            , pre[][text "\n"]
+            , text ("BadBody: "++string)
+            , button [ onClick More, style "display" "block" ] [text "try again"]
+            ]
+            
+    Loading ->
+      text "Loading..."
 
-subscriptions : Model -> Sub Msg
-subscriptions model =
-    Sub.none
+    Success quote->
+      div[style "padding-left" "200px"]
+      [ viewTitle model
+      , ol[][ h3[][text "meaning"]
+            , getDefinition quote 0
+            ]
+      , viewInput "text" "Answer" model.answer Answer
+      , viewValidation model
+      , checkbox Show "show it !"
+      , div[style "padding-left" "80px"] 
+        [ button [ onClick More, style "display" "block" ] [text "Another round"] ]
+      ]
 
 
-main : Program () Model Msg
+viewTitle : Model -> Html msg
+viewTitle model = 
+  if model.show == True then
+    h1 [ style "color" "green" ] [ text model.word ]
+  else
+    h2 [] [ text "Guess it !" ]
+    
+   
+viewInput : String -> String -> String -> (String -> msg) -> Html msg
+viewInput t p v toMsg =
+  div[style "padding-left" "80px"] [ input [ type_ t, placeholder p, value v, onInput toMsg ] [] ]
+  
+  
+viewValidation : Model -> Html msg
+viewValidation model =
+  if String.toLower(model.answer) == model.word then
+    div [ style "padding-left" "80px", style "color" "green" ] [ text "Correct! Good job !!! " ]
+  else
+    div [ style "padding-left" "80px", style "color" "red" ] [ text "wrong word ! " ]
+    
+
+checkbox : msg -> String -> Html msg
+checkbox msg name =
+  label
+    [ style "padding-left" "100px" ]
+    [ input [ type_ "checkbox", onClick msg ] []
+    , text name
+    ]
+    
+getWord : String -> Int -> String
+getWord words nbr = 
+  let
+    wordlist = String.words(words)
+    wordarray = Array.fromList wordlist
+    newword = Array.get nbr wordarray
+  in
+    Maybe.withDefault "no word" newword
+    
+
+
+-- get partOfSpeechs and definisions  
+
+
+getDefinition : (List (List Definitions)) -> Int -> Html Msg
+getDefinition quote int =
+  let
+    array_ListDefinition = fromList(quote)
+    maybe_ListDefinition = (get 0 array_ListDefinition)
+    listDefinition = Maybe.withDefault [] maybe_ListDefinition
+    array_Definitions = fromList(listDefinition)          --inside is list of (partOfSpeech and definitions)
+    maybe_Definition = (get int array_Definitions)
+    definitions = Maybe.withDefault (Definitions "" [""]) maybe_Definition
+    array_Definition = fromList(definitions.definitions)
+  in
+    if definitions /= Definitions "" [""] then
+      div[]
+      [ ol[][ text definitions.partOfSpeech
+            , ol[][ fetchAllDefinitions array_Definition 0 ]
+            ]
+      , getDefinition quote (int+1)
+      ]
+    else
+      div[][]
+
+fetchAllDefinitions : Array String -> Int -> Html Msg
+fetchAllDefinitions array_Definition nbr = 
+  let
+    maybe_Definition = (get nbr array_Definition)
+    definition = Maybe.withDefault "" maybe_Definition
+  in
+    if definition /= "" then
+      pre[] [text (String.fromInt (nbr+1) ++ ". ")
+      , text definition
+      , fetchAllDefinitions array_Definition (nbr+1) 
+      ]
+    else 
+      pre[] [text (Maybe.withDefault "" maybe_Definition)]
+
+
+-- MAIN
+
+
 main =
-    Browser.element
-        { init = init
-        , update = update
-        , view = view
-        , subscriptions = subscriptions
-        }
+  Browser.element
+    { init = init
+    , update = update
+    , subscriptions = \_ -> Sub.none
+    , view = view
+    }
