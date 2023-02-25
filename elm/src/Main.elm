@@ -42,7 +42,7 @@ init _ =
         text = "" 
         , answer =  "" 
         ,show = False 
-        ,state= Loading 
+        ,state= Loading
         , random = 0
         , errorMessage = ""
         , word= "" 
@@ -83,7 +83,6 @@ update msg model =
                 
             )
 
-
     GetRandomWord ->
             ( model, Random.generate NewRandomNumber (Random.int 0 999) )
     GotQuote result ->
@@ -113,13 +112,6 @@ update msg model =
                 { model| errorMessage = "Problem with loading data "}, Cmd.none
             )
     
---getRandomGame : Model -> Int -> Cmd Msg
---getRandomGame model int= 
-  --Http.get
-    --{ url = "https://api.dictionaryapi.dev/api/v2/entries/en/" ++ (getWord model.word int)
-    --, expect = Http.expectJson GotQuote quoteDecoder
-   -- }
-
 -- Decode Json
  
  
@@ -129,7 +121,7 @@ quoteDecoder =
     
 typeDefinitionsDecoder : Decoder (List Definitions)
 typeDefinitionsDecoder = 
-    (field "Definitions" listDefinitionDecoder)
+    (field "meanings" listDefinitionDecoder)
 
 listDefinitionDecoder : Decoder (List Definitions)
 listDefinitionDecoder = 
@@ -279,7 +271,6 @@ fetchAllDefinitions array_Definition nbr =
 
 
 -- MAIN
-
 
 main =
   Browser.element

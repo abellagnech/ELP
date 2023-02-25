@@ -11228,7 +11228,7 @@ var $author$project$Main$definitionDecoder = A3(
 		'definitions',
 		$elm$json$Json$Decode$list($author$project$Main$definitionOnlyDecoder)));
 var $author$project$Main$listDefinitionDecoder = $elm$json$Json$Decode$list($author$project$Main$definitionDecoder);
-var $author$project$Main$typeDefinitionsDecoder = A2($elm$json$Json$Decode$field, 'Definitions', $author$project$Main$listDefinitionDecoder);
+var $author$project$Main$typeDefinitionsDecoder = A2($elm$json$Json$Decode$field, 'meanings', $author$project$Main$listDefinitionDecoder);
 var $author$project$Main$quoteDecoder = $elm$json$Json$Decode$list($author$project$Main$typeDefinitionsDecoder);
 var $author$project$Main$update = F2(
 	function (msg, model) {
